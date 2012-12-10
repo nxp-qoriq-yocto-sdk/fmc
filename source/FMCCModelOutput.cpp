@@ -34,6 +34,7 @@
 #include <string.h>
 
 #include "FMCCModelOutput.h"
+#include "FMCGenericError.h"
 
 
 static std::string ind( size_t count )
@@ -193,6 +194,7 @@ static std::string ind( size_t count )
 #define OUT_EMPTY   \
     oss << std::endl;
 
+
 void
 CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostream& oss,
                           size_t indent )
@@ -223,18 +225,23 @@ CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostr
     OUT_EMPTY;
 
     // Output all engines
+    check_bounds( model.all_engines.size(), FMC_FMAN_NUM, "engines" );
     EMIT2( fman_count =, model.all_engines.size() );
     for ( unsigned int i = 0; i < cmodel->fman_count; ++i ) {
         output_fmc_fman( model, cmodel, i, oss, indent );
     }
     OUT_EMPTY;
     // Output all ports
+    check_bounds( model.all_ports.size(),
+                  FMC_PORTS_PER_FMAN * FMC_FMAN_NUM, "ports" );
     EMIT2( port_count =, model.all_ports.size() )
     for ( unsigned int i = 0; i < cmodel->port_count; ++i ) {
         output_fmc_port( model, cmodel, i, oss, indent );
     }
     OUT_EMPTY;
     // Output all schemes
+    check_bounds( model.all_schemes.size(),
+                  FMC_SCHEMES_NUM, "KeyGen schemes" );
     EMIT2( scheme_count =, model.all_schemes.size() )
     for ( unsigned int i = 0; i < cmodel->scheme_count; ++i ) {
         OUT_EMPTY;
@@ -242,6 +249,8 @@ CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostr
     }
     OUT_EMPTY;
     // Output CC nodes
+    check_bounds( model.all_ccnodes.size(),
+                  FMC_CC_NODES_NUM, "Coarse Classifications" );
     EMIT2( ccnode_count =, model.all_ccnodes.size() )
     for ( unsigned int i = 0; i < cmodel->ccnode_count; ++i ) {
         OUT_EMPTY;
@@ -249,6 +258,8 @@ CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostr
     }
     OUT_EMPTY;
      // Output HT nodes
+    check_bounds( model.all_htnodes.size(),
+                  FMC_CC_NODES_NUM, "HT nodes" );
     EMIT2( htnode_count =, model.all_htnodes.size() )
     for ( unsigned int i = 0; i < cmodel->htnode_count; ++i ) {
         OUT_EMPTY;
@@ -257,6 +268,8 @@ CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostr
     OUT_EMPTY;
 #if (DPAA_VERSION >= 11)
     // Output Replicators
+    check_bounds( model.all_replicators.size(),
+                  FMC_REPLICATORS_NUM, "replicators" );
     EMIT2( replicator_count =, model.all_replicators.size() )
     for ( unsigned int i = 0; i < cmodel->replicator_count; ++i ) {
         OUT_EMPTY;
@@ -265,6 +278,8 @@ CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostr
 #endif /* (DPAA_VERSION >= 11) */
     OUT_EMPTY;
     // Output policers
+    check_bounds( model.all_policers.size(),
+                  FMC_PLC_NUM, "policers" );
     EMIT2( policer_count =, model.all_policers.size() )
     for ( unsigned int i = 0; i < cmodel->policer_count; ++i ) {
         OUT_EMPTY;
@@ -272,6 +287,9 @@ CFMCCModelOutput::output( const CFMCModel& model, fmc_model_t* cmodel, std::ostr
     }
     OUT_EMPTY;
     // Output apply order
+    check_bounds( model.applier.size(),
+                  FMC_FMAN_NUM*FMC_PORTS_PER_FMAN*(FMC_SCHEMES_NUM+FMC_CC_NODES_NUM),
+                  "apply entries" );
     EMIT2( apply_order_count =, model.applier.size() )
     for ( int i = cmodel->apply_order_count - 1; i >= 0; --i ) {
         output_fmc_applier( model, cmodel, i, oss, indent );
@@ -737,8 +755,9 @@ CFMCCModelOutput::output_fmc_port( const CFMCModel& model, fmc_model_t* cmodel,
     if ( model.all_ports[index].reasm_index != 0 ) {
         numOfDistUnits += 2;
     }
-    EMIT4( port[, index, ].distinctionUnits.numOfDistinctionUnits =, numOfDistUnits );
 
+    bool was_ipv4frag = false;
+    bool was_ipv6frag = false;
     std::map< Protocol,
         std::pair< unsigned int, DistinctionUnitElement > >::const_iterator protoIt;
     for ( protoIt  = model.all_ports[index].protocols.begin();
@@ -747,6 +766,9 @@ CFMCCModelOutput::output_fmc_port( const CFMCModel& model, fmc_model_t* cmodel,
         EMIT6STR( port[, index, ].distinctionUnits.units[, protoIt->second.first, ].hdrs[0].hdr =, protoIt->second.second.hdr );
         if ( protoIt->second.second.opt != "" )
         {
+            ipv4ProtocolOpt_t opt_ipv4;
+            ipv6ProtocolOpt_t opt_ipv6;
+
             switch (cmodel->port[index].distinctionUnits.units[protoIt->second.first].hdrs[0].hdr)
             {
             case HEADER_TYPE_ETH:
@@ -759,10 +781,20 @@ CFMCCModelOutput::output_fmc_port( const CFMCModel& model, fmc_model_t* cmodel,
                 EMIT6( port[, index, ].distinctionUnits.units[, protoIt->second.first, ].hdrs[0].opt.mplsOpt =, strtoul( protoIt->second.second.opt.c_str(), 0, 16 ) );
                 break;
             case HEADER_TYPE_IPv4:
-                EMIT6( port[, index, ].distinctionUnits.units[, protoIt->second.first, ].hdrs[0].opt.ipv4Opt =, strtoul( protoIt->second.second.opt.c_str(), 0, 16 ) );
+                opt_ipv4 = strtoul( protoIt->second.second.opt.c_str(), 0, 16 );
+                EMIT6( port[, index, ].distinctionUnits.units[, protoIt->second.first, ].hdrs[0].opt.ipv4Opt =, opt_ipv4 );
+                if ( opt_ipv4 == IPV4_FRAG_1 ) {
+                    was_ipv4frag = true;
+                    --numOfDistUnits;
+                }
                 break;
             case HEADER_TYPE_IPv6:
-                EMIT6( port[, index, ].distinctionUnits.units[, protoIt->second.first, ].hdrs[0].opt.ipv6Opt =, strtoul( protoIt->second.second.opt.c_str(), 0, 16 ) );
+                opt_ipv6 = strtoul( protoIt->second.second.opt.c_str(), 0, 16 );
+                EMIT6( port[, index, ].distinctionUnits.units[, protoIt->second.first, ].hdrs[0].opt.ipv6Opt =, opt_ipv6 );
+                if ( opt_ipv6 == IPV6_FRAG_1 ) {
+                    --numOfDistUnits;
+                    was_ipv6frag = true;
+                }
                 break;
             }
         }
@@ -770,12 +802,18 @@ CFMCCModelOutput::output_fmc_port( const CFMCModel& model, fmc_model_t* cmodel,
 
 #ifndef P1023
     if ( model.all_ports[index].reasm_index != 0 ) {
-        EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 2,].hdrs[0].hdr = HEADER_TYPE_IPv4 );
-        EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 2,].hdrs[0].opt.ipv4Opt = IPV4_FRAG_1 );
-        EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 1,].hdrs[0].hdr = HEADER_TYPE_IPv6 );
-        EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 1,].hdrs[0].opt.ipv6Opt = IPV6_FRAG_1 );
+        if ( !was_ipv4frag ) {
+            EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 2,].hdrs[0].hdr = HEADER_TYPE_IPv4 );
+            EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 2,].hdrs[0].opt.ipv4Opt = IPV4_FRAG_1 );
+        }
+        if ( !was_ipv6frag ) {
+            EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 1,].hdrs[0].hdr = HEADER_TYPE_IPv6 );
+            EMIT5( port[, index, ].distinctionUnits.units[, numOfDistUnits - 1,].hdrs[0].opt.ipv6Opt = IPV6_FRAG_1 );
+        }
     }
 #endif /* P1023 */
+
+    EMIT4( port[, index, ].distinctionUnits.numOfDistinctionUnits =, numOfDistUnits );
 
     // Fill PCD params
     if ( ( !model.all_ports[index].cctrees.empty() || model.all_ports[index].reasm_index != 0 )
@@ -1917,4 +1955,16 @@ CFMCCModelOutput::get_fmc_type_str( ApplyOrder::Type t ) const
             return "FMCManipulation";
     }
     return "";
+}
+
+
+void
+CFMCCModelOutput::check_bounds( unsigned int used,
+                                unsigned int available,
+                                std::string  entity )
+{
+    if ( used > available ) {
+        throw CGenericError( ERR_NOT_ENOUGH_RESOURCES,
+                             entity, used, available );
+    }
 }

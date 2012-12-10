@@ -257,101 +257,92 @@ fmc_clean( fmc_model* model )
 
 /* -------------------------------------------------------------------------- */
 t_Handle
-fmc_get_handle(
-            fmc_model*   model,
-            unsigned int engine_number,
-            e_FmPortType port_type,
-            unsigned int port_number,
-            const char*  name
+fmc_get_handle( fmc_model*  model,
+                const char* name
 )
 {
-    unsigned int engine  = 0;
-    unsigned int port    = 0;
-    unsigned int found   = 0;
-    unsigned int ccindex = 0;
-    unsigned int htindex = 0;
-    unsigned int repindex = 0;
     unsigned int i;
 
-    // Find engine index
-    for ( engine = 0; engine < model->fman_count; engine++ ) {
-        if ( model->fman[engine].number == engine_number ) {
-            found = 1;
-            break;
-        }
-    }
-    if ( !found ) {
-        return 0;
-    }
+    for ( i = 0; i < model->fman_count; ++i ) {
+        unsigned int j;
 
-    // Check whether it is a 'policy' name. Return PCD handle then
-    if ( strcmp( model->fman[engine].pcd_name, name ) == 0 ) {
-        return model->fman[engine].pcd_handle;
-    }
+        // Check engine's name
+        if ( strcmp( model->fman[i].name, name ) == 0 ) {
+            return model->fman[i].handle;
+        }
+
+        // Check policy's name
+        if ( strcmp( model->fman[i].pcd_name, name ) == 0 ) {
+            return model->fman[i].pcd_handle;
+        }
 
 #ifndef P1023
-    // Check fragmentation names
-    for ( i = 0; i < model->fman[engine].frag_count; i++ ) {
-        if ( strcmp( model->fman[engine].frag_name[i], name ) == 0 ) {
-            return model->fman[engine].frag_handle[i];
+        // Check fragmentation names
+        for ( j = 0; j < model->fman[i].frag_count; j++ ) {
+            if ( strcmp( model->fman[i].frag_name[j], name ) == 0 ) {
+                return model->fman[i].frag_handle[j];
+            }
         }
-    }
 
-    // Check reassembly names
-    for ( i = 0; i < model->fman[engine].reasm_count; i++ ) {
-        if ( strcmp( model->fman[engine].reasm_name[i], name ) == 0 ) {
-            return model->fman[engine].reasm_handle[i];
+        // Check reassembly names
+        for ( j = 0; j < model->fman[i].reasm_count; j++ ) {
+            if ( strcmp( model->fman[i].reasm_name[j], name ) == 0 ) {
+                return model->fman[i].reasm_handle[j];
+            }
         }
-    }
 
-    // Check header manip names
-    for ( i = 0; i < model->fman[engine].hdr_count; i++ ) {
-        if ( strcmp( model->fman[engine].hdr_name[i], name ) == 0 ) {
-            return model->fman[engine].hdr_handle[i];
+        // Check header manip names
+        for ( j = 0; j < model->fman[i].hdr_count; j++ ) {
+            if ( strcmp( model->fman[i].hdr_name[j], name ) == 0 ) {
+                return model->fman[i].hdr_handle[j];
+            }
         }
     }
 #endif /* P1023 */
 
-    // Find port index
-    found = 0;
-    for ( port = 0; port < model->fman[engine].port_count; port++ ) {
-        unsigned int port_index = model->fman[engine].ports[port];
-        if ( model->port[port_index].type   == port_type &&
-             model->port[port_index].number == port_number ) {
-            port  = port_index;
-            found = 1;
-            break;
+    // Check port's name
+    for ( i = 0; i < model->port_count; i++ ) {
+        if ( strcmp( model->port[i].name, name ) == 0 ) {
+            return model->port[i].handle;
         }
     }
-    if ( !found ) {
-        return 0;
+
+    // Find scheme name
+    for ( i = 0; i < model->scheme_count; i++ ) {
+        if ( strcmp( model->scheme_name[i], name ) == 0 ) {
+            return model->scheme_handle[i];
+        }
     }
 
     // Find CC handle according to found engine and port
-    for ( ccindex =0; ccindex < model->port[port].ccnodes_count; ccindex++ ) {
-        unsigned int index = model->port[port].ccnodes[ccindex];
-        if ( strcmp( model->ccnode_name[index], name ) == 0 ) {
-            return model->ccnode_handle[index];
+    for ( i = 0; i < model->ccnode_count; i++ ) {
+        if ( strcmp( model->ccnode_name[i], name ) == 0 ) {
+            return model->ccnode_handle[i];
         }
     }
 
     // Find HT handle according to found engine and port
-    for ( htindex =0; htindex < model->port[port].htnodes_count; htindex++ ) {
-        unsigned int index = model->port[port].htnodes[htindex];
-        if ( strcmp( model->htnode_name[index], name ) == 0 ) {
-            return model->htnode_handle[index];
+    for ( i =0; i < model->htnode_count; i++ ) {
+        if ( strcmp( model->htnode_name[i], name ) == 0 ) {
+            return model->htnode_handle[i];
         }
     }
 
 #if (DPAA_VERSION >= 11)
     // Find replicator handle according to found engine and port
-    for ( repindex =0; repindex < model->port[port].replicators_count; repindex++ ) {
-        unsigned int index = model->port[port].replicators[repindex];
-        if ( strcmp( model->replicator_name[index], name ) == 0 ) {
-            return model->replicator_handle[index];
+    for ( i =0; i < model->replicator_count; i++ ) {
+        if ( strcmp( model->replicator_name[i], name ) == 0 ) {
+            return model->replicator_handle[i];
         }
     }
 #endif /* (DPAA_VERSION >= 11) */
+
+    // Find policer name
+    for ( i = 0; i < model->policer_count; i++ ) {
+        if ( strcmp( model->policer_name[i], name ) == 0 ) {
+            return model->policer_handle[i];
+        }
+    }
 
     return 0;
 }
@@ -1150,9 +1141,9 @@ fmc_clean_manip( fmc_model* model, unsigned int engine,
 {
     t_Error err;
     if ( model->fman[engine].hdr_handle[index] != 0 ) {
-		LOG_FMD_CALL( FM_PCD_ManipNodeDelete, model->fman[engine].hdr_name[index] );
+        LOG_FMD_CALL( FM_PCD_ManipNodeDelete, model->fman[engine].hdr_name[index] );
         err = FM_PCD_ManipNodeDelete( model->fman[engine].hdr_handle[index] );
-		CHECK_ERR( FM_PCD_ManipNodeDelete, model->fman[engine].hdr_name[index] );
+        CHECK_ERR( FM_PCD_ManipNodeDelete, model->fman[engine].hdr_name[index] );
     }
 
     return 0;
