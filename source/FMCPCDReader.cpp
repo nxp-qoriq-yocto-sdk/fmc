@@ -292,6 +292,7 @@ CPCDReader::parseDistribution( CDistribution* distribution, xmlNodePtr pNode )
     distribution->symmetricHash = false;
     distribution->qcount        = 1;
     distribution->qbase         = 0;
+    distribution->bypass        = false;
     distribution->dflt0         = 0;
     distribution->dflt1         = 0;
     distribution->vspbase       = 0;
@@ -386,7 +387,12 @@ CPCDReader::parseDistribution( CDistribution* distribution, xmlNodePtr pNode )
             // Get the 'base' attribute
             distribution->qbase = std::strtol( getAttr( cur, "base" ).c_str(), 0, 0 );
 
-            checkUnknownAttr( cur, 2, "base", "count" );
+            // Get the 'bypass' attribute
+            if (getAttr( cur, "bypass" ) == "true" ) {
+                distribution->bypass = true;
+            }
+            
+            checkUnknownAttr( cur, 3, "base", "count", "bypass" );
         }
         // combine
         else if ( !xmlStrcmp( cur->name, (const xmlChar*)"combine" ) ) {
@@ -522,7 +528,7 @@ CPCDReader::parseClassification( CClassification* classification, xmlNodePtr pNo
                 << getAttr( pNode, "name" )
                 << "' ... " << std::endl;
                 
-    checkUnknownAttr( pNode, 4, "name", "max", "masks", "statistics" );
+    checkUnknownAttr( pNode, 5, "name", "max", "masks", "statistics", "shared" );
 
     classification->actionOnMiss            = "";
     classification->actionNameOnMiss        = "";
@@ -538,6 +544,8 @@ CPCDReader::parseClassification( CClassification* classification, xmlNodePtr pNo
     classification->vspOverrideOnMiss       = false;
     classification->vspBaseOnMiss           = 0;
     classification->statisticsOnMiss        = false;
+    classification->shared                  = false;
+
     for (unsigned int i = 0; i < 10; i++)
         classification->frameLength.push_back(i+1);
     classification->frameLength[9] = 0xFFFF;
@@ -553,7 +561,11 @@ CPCDReader::parseClassification( CClassification* classification, xmlNodePtr pNo
     }
 
     if ( getAttr( pNode, "masks" ) == "true" || getAttr( pNode, "masks" ) == "yes" ) {
-            classification->masks = true;
+        classification->masks = true;
+    }
+
+    if ( getAttr( pNode, "shared" ) == "true" || getAttr( pNode, "shared" ) == "yes" ) {
+        classification->shared = true;
     }
 
     // 'Key presents' flags
@@ -643,6 +655,20 @@ CPCDReader::parseClassification( CClassification* classification, xmlNodePtr pNo
                     classification->key.header = false;
                     classification->key.field = false;
                     hashTableFound = true;
+                    //Ajust max if hashtable
+                    if (classification->max == 0){
+                        uint16_t onesCount = 0;
+                        uint16_t numOfSets = 0;
+                        uint16_t countMask = (uint16_t)(hashTableEntry.mask >> 4);
+                        while (countMask)
+                        {
+                            onesCount++;
+                            countMask = (uint16_t)(countMask >> 1);
+                        }
+
+                        numOfSets = (uint16_t)(1 << onesCount);
+                        classification->max = numOfSets;
+                    }
                 }
 
                 fr = fr->next;

@@ -268,6 +268,8 @@ CFMCModel::createModel( CTaskDef* pTaskDef )
         createSoftParse( pTaskDef );
     }
 
+    applier.reverse_port_apply_order();
+
     return true;
 }
 
@@ -709,6 +711,7 @@ CFMCModel::createScheme( const CTaskDef* pTaskDef, Port& port, const CDistributi
     }
     scheme.qbase                 = xmlDist.qbase;
     scheme.qcount                = xmlDist.qcount;
+    scheme.bypass                = xmlDist.bypass;
     scheme.privateDflt0          = xmlDist.dflt0;
     scheme.privateDflt1          = xmlDist.dflt1;
     scheme.hashShift             = xmlDist.keyShift;
@@ -790,22 +793,13 @@ CFMCModel::createScheme( const CTaskDef* pTaskDef, Port& port, const CDistributi
         nonheader.typeStr = "e_FM_PCD_EXTRACT_NON_HDR";
 
         nonheader.nhSource = (e_FmPcdExtractFrom)xmlDist.nonHeader[i].source;
-        switch (xmlDist.nonHeader[i].source)
-        {
+        switch ( nonheader.nhSource ) {
             case e_FM_PCD_EXTRACT_FROM_FRAME_START:
-                nonheader.nhSourceStr  = "e_FM_PCD_EXTRACT_FROM_FRAME_START";
-                break;
             case e_FM_PCD_EXTRACT_FROM_DFLT_VALUE:
-                nonheader.nhSourceStr  = "e_FM_PCD_EXTRACT_FROM_DFLT_VALUE";
-                break;
             case e_FM_PCD_EXTRACT_FROM_CURR_END_OF_PARSE:
-                nonheader.nhSourceStr  = "e_FM_PCD_EXTRACT_FROM_CURR_END_OF_PARSE";
-                break;
             case e_FM_PCD_EXTRACT_FROM_PARSE_RESULT:
-                nonheader.nhSourceStr  = "e_FM_PCD_EXTRACT_FROM_PARSE_RESULT";
-                break;
             case e_FM_PCD_EXTRACT_FROM_ENQ_FQID:
-                nonheader.nhSourceStr  = "e_FM_PCD_EXTRACT_FROM_ENQ_FQID";
+                nonheader.nhSourceStr = getExtractFromStr( nonheader.nhSource );
                 break;
             default:
                 nonheader.nhSourceStr  = "e_FM_PCD_EXTRACT_FROM_DFLT_VALUE";
@@ -1112,6 +1106,48 @@ CFMCModel::createScheme( const CTaskDef* pTaskDef, Port& port, const CDistributi
 }
 
 
+static uint8_t getByteMask( int size_in_bits, int start_bit_offset, int byteNo )
+{
+    uint8_t ret = 0xFF;
+
+    uint8_t ending[] = {
+        0xFF,
+        0xFE,
+        0xFC,
+        0xF8,
+        0xF0,
+        0xE0,
+        0xC0,
+        0x80,
+    };
+    uint8_t starting[] = {
+        0xFF,
+        0x7F,
+        0x3F,
+        0x1F,
+        0x0F,
+        0x07,
+        0x03,
+        0x01,
+    };
+
+    int len = ( start_bit_offset + size_in_bits + 7 ) / 8;
+    if ( ( byteNo >= len ) ||
+         ( ( byteNo > 0 ) && ( byteNo < len - 1 ) ) ) {
+        return ret;
+    }
+
+    if ( byteNo == 0 ) { // First byte from right
+        ret &= ending[len * 8 - size_in_bits - start_bit_offset];
+    }
+    if ( byteNo == len - 1 ) { // Last byte from right
+        ret &= starting[start_bit_offset];
+    }
+
+    return ret;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Converts classification parameters provided throught XML file
 /// to the internal representation
@@ -1126,13 +1162,20 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
 
     port.ccnodes.push_back( ccNode.getIndex() );
 
-    ccNode.name           = port.name + "/ccnode/" + xmlCCNode.name;
+    ccNode.shared = xmlCCNode.shared;
+    if ( ccNode.shared ) {
+        ccNode.name = port.name.substr( 0, 3 ) + "/ccnode/" + xmlCCNode.name;
+    }
+    else {
+        ccNode.name = port.name + "/ccnode/" + xmlCCNode.name;
+    }
     ccNode.port_signature = port.name;
 
     //Pre-allocation
     ccNode.maxNumOfKeys = xmlCCNode.max;
     ccNode.maskSupport  = xmlCCNode.masks;
     ccNode.statistics   = getStatistic(xmlCCNode.statistics);
+    ccNode.shared       = xmlCCNode.shared;
 
 #ifndef P1023
 #if (DPAA_VERSION >= 11)
@@ -1159,12 +1202,18 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
         ccNode.extract.type = e_FM_PCD_EXTRACT_NON_HDR;
         ccNode.extract.typeStr = "e_FM_PCD_EXTRACT_NON_HDR";
     }
+    ccNode.extract.nhAction    = e_FM_PCD_ACTION_NONE;
+    ccNode.extract.nhActionStr = "e_FM_PCD_ACTION_NONE";
 
     ccNode.keySize = 0;
 
     ExtractData field;
     field.fieldType    = 0;
     field.fieldTypeStr = "";
+
+    unsigned int bitsize   = 0;
+    unsigned int bitoffset = 0;
+
     // For each 'extract key' entry
     if (ccNode.extract.type == e_FM_PCD_EXTRACT_BY_HDR)
     {
@@ -1199,8 +1248,6 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
                 field.fieldTypeStr += getNetCommFieldTypeStr( field.fieldName );
 
                 // Find the protocol and get the field's length
-                unsigned int bitsize;
-                unsigned int bitoffset;
                 if ( pTaskDef->GetFieldProperties( xmlCCNode.key.fields[i].name,
                                                    bitsize, bitoffset ) ) {
                     ccNode.keySize += bitsize;
@@ -1225,10 +1272,8 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
                 else {
                     field.hdrtype    = e_FM_PCD_EXTRACT_FROM_HDR;
                     field.hdrtypeStr = "e_FM_PCD_EXTRACT_FROM_HDR";
-                    // For classification purposes, only byte aligned fields are supported
-                    field.size       = bitsize / 8;
+                    field.size       = ( bitsize + 7 ) / 8;
                     field.offset     = bitoffset / 8;
-                    // TODO: Apply mask
                 }
             }
             else {
@@ -1241,30 +1286,9 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
     }
     else
     {// Non header extract
-        ccNode.extract.nhSource = (e_FmPcdExtractFrom)xmlCCNode.key.nonHeaderEntry.source;
-        switch (ccNode.extract.nhSource)
-        {
-        case e_FM_PCD_EXTRACT_FROM_FRAME_START:
-            ccNode.extract.nhSourceStr = "e_FM_PCD_EXTRACT_FROM_FRAME_START";
-            break;
-        case e_FM_PCD_EXTRACT_FROM_KEY:
-            ccNode.extract.nhSourceStr = "e_FM_PCD_EXTRACT_FROM_KEY";
-            break;
-        case e_FM_PCD_EXTRACT_FROM_HASH:
-            ccNode.extract.nhSourceStr = "e_FM_PCD_EXTRACT_FROM_HASH";
-            break;
-        case e_FM_PCD_EXTRACT_FROM_PARSE_RESULT:
-            ccNode.extract.nhSourceStr = "e_FM_PCD_EXTRACT_FROM_PARSE_RESULT";
-            break;
-        case e_FM_PCD_EXTRACT_FROM_ENQ_FQID:
-            ccNode.extract.nhSourceStr = "e_FM_PCD_EXTRACT_FROM_ENQ_FQID";
-            break;
-        case e_FM_PCD_EXTRACT_FROM_FLOW_ID:
-            ccNode.extract.nhSourceStr = "e_FM_PCD_EXTRACT_FROM_FLOW_ID";
-            break;
-        }
-
-        ccNode.extract.nhAction        = (e_FmPcdAction)xmlCCNode.key.nonHeaderEntry.action;
+        ccNode.extract.nhSource    = (e_FmPcdExtractFrom)xmlCCNode.key.nonHeaderEntry.source;
+        ccNode.extract.nhSourceStr = getExtractFromStr( ccNode.extract.nhSource );
+        ccNode.extract.nhAction    = (e_FmPcdAction)xmlCCNode.key.nonHeaderEntry.action;
 
         switch (ccNode.extract.nhAction)
         {
@@ -1339,7 +1363,12 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
         for ( unsigned int j = 0; j < ccNode.keySize; ++j ) {
             ccNode.keys[i].data[j] =
                 xmlCCNode.entries[i].data[FM_PCD_MAX_SIZE_OF_KEY - ccNode.keySize + j];
-            ccNode.masks[i].data[j] =
+            uint8_t byteMask = 0xFF;
+            if ( ccNode.extract.type    == e_FM_PCD_EXTRACT_BY_HDR &&
+                 ccNode.extract.hdrtype == e_FM_PCD_EXTRACT_FROM_HDR ) {
+                byteMask = getByteMask( bitsize, bitoffset % 8, ccNode.keySize - j - 1 );
+            }
+            ccNode.masks[i].data[j] = byteMask &
                 xmlCCNode.entries[i].mask[FM_PCD_MAX_SIZE_OF_KEY - ccNode.keySize + j];
         }
 
@@ -2139,10 +2168,18 @@ CFMCModel::get_ccnode_index( const CTaskDef* pTaskDef, std::string name,
     bool         found = false;
     unsigned int index;
     for ( unsigned int i = 0; i < all_ccnodes.size(); ++i ) {
-        if ( ( all_ccnodes[i].name           == port.name + "/ccnode/" + name ) &&
-             ( all_ccnodes[i].port_signature == port.name ) ) {
-            found = true;
-            index = all_ccnodes[i].getIndex();
+        if ( all_ccnodes[i].shared ) {
+            if ( ( all_ccnodes[i].name == port.name.substr( 0, 3 ) + "/ccnode/" + name ) ) {
+                found = true;
+                index = all_ccnodes[i].getIndex();
+            }
+        }
+        else {
+            if ( ( all_ccnodes[i].name           == port.name + "/ccnode/" + name ) &&
+                 ( all_ccnodes[i].port_signature == port.name ) ) {
+                found = true;
+                index = all_ccnodes[i].getIndex();
+            }
         }
     }
 
@@ -2308,7 +2345,7 @@ CFMCModel::createSoftParse( const CTaskDef* pTaskDef )
             }
         }
     }
-};
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3023,6 +3060,43 @@ CFMCModel::getEngineByTypeStr( std::string enginename )
     return "e_FM_PCD_DONE";
 }
 
+
+std::string
+CFMCModel::getExtractFromStr( e_FmPcdExtractFrom extract )
+{
+    std::string ret = "e_FM_PCD_EXTRACT_FROM_DFLT_VALUE";
+    switch ( extract )
+    {
+    case e_FM_PCD_EXTRACT_FROM_FRAME_START:
+        ret = "e_FM_PCD_EXTRACT_FROM_FRAME_START";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_DFLT_VALUE:
+        ret = "e_FM_PCD_EXTRACT_FROM_DFLT_VALUE";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_KEY:
+        ret = "e_FM_PCD_EXTRACT_FROM_KEY";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_HASH:
+        ret = "e_FM_PCD_EXTRACT_FROM_HASH";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_PARSE_RESULT:
+        ret = "e_FM_PCD_EXTRACT_FROM_PARSE_RESULT";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_ENQ_FQID:
+        ret = "e_FM_PCD_EXTRACT_FROM_ENQ_FQID";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_FLOW_ID:
+        ret = "e_FM_PCD_EXTRACT_FROM_FLOW_ID";
+        break;
+    case e_FM_PCD_EXTRACT_FROM_CURR_END_OF_PARSE:
+        ret = "e_FM_PCD_EXTRACT_FROM_CURR_END_OF_PARSE";
+        break;
+    }
+
+    return ret;
+}
+
+
 e_FmPcdCcStatsMode
 CFMCModel::getStatistic( std::string statistic )
 {
@@ -3113,13 +3187,6 @@ ApplyOrder::add( Entry entry )
 
 
 void
-ApplyOrder::add( Entry entry, unsigned int index )
-{
-    entries.insert( entries.begin() + index, entry );
-}
-
-
-void
 ApplyOrder::add_edge( Entry n1, Entry n2 )
 {
     edges.push_back( std::pair< Entry, Entry >( n1, n2 ) );
@@ -3198,8 +3265,63 @@ ApplyOrder::sort()
     }
 
     for ( unsigned int i = result.size(); i != 0; --i ) {
-        entries.push_back( result[i - 1] );
+        // As some shared items might be already in the list,
+        // add only those which were not added previously
+        if ( find( entries.begin(), entries.end(), result[i - 1] ) == entries.end() ) {
+            entries.push_back( result[i - 1] );
+        }
     }
+}
+
+
+void
+ApplyOrder::reverse_port_apply_order()
+{
+    std::vector< Entry >                engine_entries;
+    std::vector< std::vector< Entry > > ports_of_engine;
+    std::vector< Entry >                result_entries;
+
+    bool   within_port = false;
+    size_t port_index = 0;
+
+    for ( size_t i = 0; i < entries.size(); ++i ) {
+        switch( entries[i].type ) {
+        case EngineEnd:
+            engine_entries.clear();
+            ports_of_engine.clear();
+            within_port = false;
+            port_index  = 0;
+            result_entries.push_back( entries[i] );
+            break;
+        case EngineStart:
+            for ( int j = ports_of_engine.size() - 1; j >= 0; --j ) {
+                result_entries.insert( result_entries.end(),
+                                       ports_of_engine[j].begin(),
+                                       ports_of_engine[j].end() );
+            }
+            result_entries.push_back( entries[i] );
+            break;
+        case PortEnd:
+            within_port = true;
+            ports_of_engine.push_back( std::vector< Entry >() );
+            ports_of_engine[port_index].push_back( entries[i] );
+            break;
+        case PortStart:
+            within_port = false;
+            ports_of_engine[port_index].push_back( entries[i] );
+            ++port_index;
+            break;
+        default:
+            if ( within_port ) {
+                ports_of_engine[port_index].push_back( entries[i] );
+            }
+            else {
+                result_entries.push_back( entries[i] );
+            }
+        }
+    }
+
+    entries = result_entries;
 }
 
 

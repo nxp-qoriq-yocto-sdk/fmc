@@ -173,6 +173,7 @@ public:
 
     unsigned int qbase;                 ///< Queue base
     unsigned int qcount;                ///< Number of queues
+    bool bypass;                        ///< Bypass fqid generation
 
     uint32_t privateDflt0;              ///< Scheme default register 0
     uint32_t privateDflt1;              ///< Scheme default register 1
@@ -250,6 +251,7 @@ public:
     e_FmPcdCcStatsMode statistics;      ///< Statistics mode (none/frame)
 
     bool maskSupport;                   ///< Reservation of memory for key masks
+    bool shared;
 
     ExtractData extract;                ///< Extract parameters
 
@@ -510,9 +512,9 @@ public:
 
 public:
     void  add( Entry entry );                     ///< Add new entry
-    void  add( Entry entry, unsigned int index ); ///< Add new entry at position
     void  add_edge( Entry n1, Entry n2 );         ///< Add edge between entries
     void  sort();                                 ///< Topological sort of entries
+    void  reverse_port_apply_order();
 
     unsigned int size() const;                    ///< Return number of entries
     Entry get( unsigned int index ) const;        ///< Return entry at position
@@ -548,6 +550,7 @@ public:
     static std::string      getNetCommHeaderIndexStr( std::string indexstr );
     static e_FmPcdEngine    getEngineByType( std::string enginename );
     static std::string      getEngineByTypeStr( std::string enginename );
+    static std::string      getExtractFromStr( e_FmPcdExtractFrom extract );
     static e_FmPcdCcStatsMode             getStatistic( std::string statstic );
     static e_FmPcdManipHdrRmvSpecificL2   getSpecificL2ByString( std::string l2 );
     static e_FmPcdManipHdrFieldUpdateType getFieldUpdateTypeByString( std::string type );
