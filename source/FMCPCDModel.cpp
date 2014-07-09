@@ -1,7 +1,7 @@
 /* =====================================================================
  *
  * The MIT License (MIT)
- * Copyright 2009-2012, Freescale Semiconductor, Inc.
+ * Copyright 2009-2014, Freescale Semiconductor, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
