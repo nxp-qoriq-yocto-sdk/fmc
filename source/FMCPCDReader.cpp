@@ -424,7 +424,7 @@ CPCDReader::parseDistribution( CDistribution* distribution, xmlNodePtr pNode )
             }
 
             std::string frame = getAttr(cur, "frame");
-            if ( !frame.empty() ) ) {    // Does exist?
+            if ( !frame.empty() ) {    // Does exist?
                 combine.kind = CCombineEntry::FRAME;
                 unsigned int offset = std::strtol( frame.c_str(), 0, 0 );
                 combine.offset = std::max( offset, combine.offset );
@@ -434,7 +434,7 @@ CPCDReader::parseDistribution( CDistribution* distribution, xmlNodePtr pNode )
             }
 
             std::string parser = getAttr(cur, "parser");
-            if ( !parser.empty() ) ) {    // Does exist?
+            if ( !parser.empty() ) {    // Does exist?
                 combine.kind = CCombineEntry::PARSER;
                 unsigned int offset = std::strtol( parser.c_str(), 0, 0 );
                 combine.offset = std::max( offset, combine.offset );
