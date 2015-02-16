@@ -1060,19 +1060,9 @@ CFMCModel::createScheme( const CTaskDef* pTaskDef, Port& port, const CDistributi
        
 		if (scheme.isDirect) 
 		{
+			//ENGR00347977
 	        ApplyOrder::Entry n0( ApplyOrder::CCTree, port.getIndex() );
 		    applier.add_edge( n0, n1 );
-
-			if (scheme.nextEngine == e_FM_PCD_CC) {
-		        ApplyOrder::Entry n2( ApplyOrder::CCNode, scheme.actionHandleIndex );
-			    applier.add_edge( n1, n2 );
-			} else if (scheme.nextEngine == e_FM_PCD_HASH) {
-		        ApplyOrder::Entry n2( ApplyOrder::HTNode, scheme.actionHandleIndex );
-			    applier.add_edge( n1, n2 );
-			} else {
-		        ApplyOrder::Entry n2( ApplyOrder::Replicator, scheme.actionHandleIndex );
-			    applier.add_edge( n1, n2 );
-			}
 		}
 		else
 		{
@@ -2270,16 +2260,15 @@ CFMCModel::get_ccnode_index( const CTaskDef* pTaskDef, std::string name,
 
     if ( isRoot ) {
 		//ENGR00320235 Optimization: check if this CC Root index already exists with the same manipulation and in this case reuse it 
-		bool found = false;
 		for (int i = 0; i < port.cctrees.size(); i++) {
 			if (port.cctrees[i] == index && port.cctrees_type[i] == e_FM_PCD_CC && port.hdrmanips[i] == manip)
-				found = true;
+				return i;
 		}
-		if (!found) {
-			port.cctrees.push_back( index );
-			port.cctrees_type.push_back( e_FM_PCD_CC );
-			port.hdrmanips.push_back( manip );
-		}
+	
+		port.cctrees.push_back( index );
+		port.cctrees_type.push_back( e_FM_PCD_CC );
+		port.hdrmanips.push_back( manip );
+        return port.cctrees.size() - 1;
     }
     return index;
 }
@@ -2324,17 +2313,15 @@ CFMCModel::get_htnode_index( const CTaskDef* pTaskDef, std::string name,
 
     if ( isRoot ) {
 		//ENGR00320235 Optimization: check if this CC Root index already exists with the same manipulation and in this case reuse it 
-		bool found = false;
 		for (int i = 0; i < port.cctrees.size(); i++) {
 			if (port.cctrees[i] == index && port.cctrees_type[i] == e_FM_PCD_HASH && port.hdrmanips[i] == manip)
-				found = true;
+				return i;
 		}
 
-		if (!found) {
-			port.cctrees.push_back( index );
-			port.cctrees_type.push_back( e_FM_PCD_HASH );
-			port.hdrmanips.push_back( manip );
-		}
+		port.cctrees.push_back( index );
+		port.cctrees_type.push_back( e_FM_PCD_HASH );
+		port.hdrmanips.push_back( manip );
+        return port.cctrees.size() - 1;
     }
     return index;
 }
@@ -2376,17 +2363,15 @@ CFMCModel::get_replicator_index( const CTaskDef* pTaskDef, std::string name,
 
     if ( isRoot ) {
 		//ENGR00320235 Optimization: check if this CC Root index already exists with the same manipulation and in this case reuse it 
-		bool found = false;
 		for (int i = 0; i < port.cctrees.size(); i++) {
 			if (port.cctrees[i] == index && port.cctrees_type[i] == e_FM_PCD_FR && port.hdrmanips[i] == manip)
-				found = true;
+				return i;
 		}
 
-		if (!found) {
-			port.cctrees.push_back( index );
-			port.cctrees_type.push_back( e_FM_PCD_FR );
-			port.hdrmanips.push_back( manip );
-		}
+		port.cctrees.push_back( index );
+		port.cctrees_type.push_back( e_FM_PCD_FR );
+		port.hdrmanips.push_back( manip );
+        return port.cctrees.size() - 1;
     }
     return index;
 }
@@ -3450,31 +3435,4 @@ ApplyOrder::reverse_port_apply_order()
         case PortStart:
             within_port = false;
             ports_of_engine[port_index].push_back( entries[i] );
-            ++port_index;
-            break;
-        default:
-            if ( within_port ) {
-                ports_of_engine[port_index].push_back( entries[i] );
-            }
-            else {
-                engine_entries.push_back( entries[i] );
-            }
-        }
-    }
-
-    entries = result_entries;
-}
-
-
-ApplyOrder::Entry
-ApplyOrder::get( unsigned int index ) const
-{
-    return entries[index];
-}
-
-
-unsigned int
-ApplyOrder::size() const
-{
-    return entries.size();
-}
+            ++port_index;
