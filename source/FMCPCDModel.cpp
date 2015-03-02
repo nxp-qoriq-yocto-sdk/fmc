@@ -3435,4 +3435,30 @@ ApplyOrder::reverse_port_apply_order()
         case PortStart:
             within_port = false;
             ports_of_engine[port_index].push_back( entries[i] );
-            ++port_index;
+            ++port_index;            break;
+        default:
+            if ( within_port ) {
+                ports_of_engine[port_index].push_back( entries[i] );
+            }
+            else {
+                engine_entries.push_back( entries[i] );
+            }
+        }
+    }
+
+    entries = result_entries;
+}
+
+
+ApplyOrder::Entry
+ApplyOrder::get( unsigned int index ) const
+{
+    return entries[index];
+}
+
+
+unsigned int
+ApplyOrder::size() const
+{
+    return entries.size();
+}
