@@ -1188,6 +1188,7 @@ CFMCModel::createCCNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
     ccNode.maskSupport  = xmlCCNode.masks;
     ccNode.statistics   = getStatistic(xmlCCNode.statistics);
     ccNode.shared       = xmlCCNode.shared;
+    ccNode.aging        = xmlCCNode.aging;
 
 #ifndef P1023
 #if (DPAA_VERSION >= 11)
@@ -1675,6 +1676,9 @@ CFMCModel::createHTNode( const CTaskDef* pTaskDef, Port& port, const CClassifica
     htNode.kgHashShift                 = kgHashShift;
     htNode.matchKeySize                = xmlCCNode.key.hashTableEntry.keySize;
     htNode.port_signature              = port.name;
+	
+	// all hash table nodes inherits the aging field from classification 
+	htNode.aging					= xmlCCNode.aging;
 
     //entries for prefilled ht
     // For each entry ...
